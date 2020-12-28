@@ -1,4 +1,6 @@
 import java.io.IOException;
+import java.util.Collections;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.chocosolver.solver.Model;
@@ -12,6 +14,8 @@ import com.github.sh0nk.matplotlib4j.PythonExecutionException;
 import com.google.common.primitives.Ints;
 
 public class SolverTest {
+
+	private final static int LENGTH = 48;
 
 	/**
 	 * PV-Production 20./21.11.2020; fems888; one value per hour
@@ -27,11 +31,16 @@ public class SolverTest {
 			443, 663, 3012, 3685, 4498, 3010, 3743, 5544, 3086, 2077, 2852, 3004, 2310, 1343, 1727, 750, 994, 2330,
 			1318 };
 
+	/**
+	 * Grid Feed-In Limit, e.g. 70 % law
+	 */
+	private final static int GRID_FEED_IN_LIMIT = -2000;
+
 	public void run() throws IOException, PythonExecutionException {
 		Model model = new Model("EMS MILP");
 
 		// Initialize Periods
-		final Period[] periods = new Period[48];
+		final Period[] periods = new Period[LENGTH];
 		for (int i = 0; i < periods.length; i++) {
 			Period p = Period.from(i, periods.length, 60);
 			periods[i] = p;
@@ -45,6 +54,10 @@ public class SolverTest {
 			// Grid exchange power
 			p.grid = p.consumption.sub(p.production).intVar();
 		}
+
+		// Apply Grid Feed-In Limit
+		IntVar gridFeedInLimit = model.intVar("Grid Feed-In Limit", GRID_FEED_IN_LIMIT);
+		model.min(gridFeedInLimit, Stream.of(periods).map(p -> p.grid).toArray(IntVar[]::new)).post();
 
 		IntVar sumGrid = periods[0].grid.add(Stream.of(periods).map(p -> p.grid).toArray(ArExpression[]::new)).intVar();
 
@@ -60,20 +73,42 @@ public class SolverTest {
 
 		if (solution.exists()) {
 			System.out.println(solution.toString());
-			for (Period period : periods) {
-				System.out
-						.println(solution.getIntVal(period.consumption) + " - " + solution.getIntVal(period.production)
-								+ " (max " + period.production.getUB() + ") = " + solution.getIntVal(period.grid));
+			for (int i = 0; i < periods.length; i++) {
+				Period p = periods[i];
+				System.out.println(solution.getIntVal(p.consumption) + " - " + solution.getIntVal(p.production)
+						+ " (max " + PRODUCTIONS[i] + ") = " + solution.getIntVal(p.grid));
 			}
-		}
 
-//		this.plot();
+			this.plot(periods, solution);
+		}
 	}
 
-	private void plot() throws IOException, PythonExecutionException {
+	private void plot(Period[] periods, Solution solution) throws IOException, PythonExecutionException {
 		Plot plt = Plot.create();
-		plt.plot().add(Ints.asList(PRODUCTIONS)).label("Production").linestyle("--");
-		plt.plot().add(Ints.asList(CONSUMPTIONS)).label("Consumption").linestyle("-");
+		plt.plot() //
+				.add(Ints.asList(PRODUCTIONS)) //
+				.label("Max Production") //
+				.linestyle("--");
+		plt.plot() //
+				.add(Stream.of(periods) //
+						.map(p -> solution.getIntVal(p.production)) //
+						.collect(Collectors.toList())) //
+				.label("Curtailed Production") //
+				.linestyle("-");
+		plt.plot() //
+				.add(Ints.asList(CONSUMPTIONS)) //
+				.label("Consumption") //
+				.linestyle("-");
+		plt.plot() //
+				.add(Stream.of(periods) //
+						.map(p -> solution.getIntVal(p.grid)) //
+						.collect(Collectors.toList())) //
+				.label("Grid") //
+				.linestyle("-");
+		plt.plot() //
+				.add(Collections.nCopies(LENGTH, GRID_FEED_IN_LIMIT)) //
+				.label("Grid Feed-In Limit") //
+				.linestyle("--");
 		plt.xlabel("Hour");
 		plt.ylabel("Watt");
 		plt.legend();
