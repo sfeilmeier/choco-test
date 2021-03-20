@@ -1,5 +1,3 @@
-import org.chocosolver.solver.variables.IntVar;
-
 public class Period {
 
 	private final static int MINUTES_PER_DAY = 1440;
@@ -30,37 +28,12 @@ public class Period {
 		this.name = name;
 	}
 
-	public IntVar production = null;
-	public IntVar consumption = null;
+	public EnergySource production = new EnergySource();
 
-	public IntVar grid = null;
-	public IntVar ess;
+	public EnergySink consumption = new EnergySink();
 
-	public IntVar essEnergy;
-	public IntVar gridSellRevenue = null;
-	public IntVar gridBuyCost = null;
+	public Grid grid = null;
 
-//	public IntVar productionPower = null;
-//	public IntVar productionEnergy = null;
-//	public IntVar productionRevenue = null;
-//
-//	public IntVar consumptionPower = null;
-//	public IntVar consumptionEnergy = null;
-//	public IntVar consumptionCost = null;
-//
-//	public IntVar gridBuyPower = null;
-//	public IntVar gridBuyEnergy = null;
-//	public IntVar gridBuyCost = null;
-//
-//	public IntVar gridSellPower = null;
-//	public IntVar gridSellEnergy = null;
-//	public IntVar gridSellRevenue = null;
-//
-//	public IntVar essChargePower = null;
-//	public IntVar essChargeEnergy = null;
-//	public IntVar essChargeRevenue = null;
-//
-//	public IntVar essDischargePower = null;
-//	public IntVar essDischargeEnergy = null;
-//	public IntVar essDischargeCost = null;
+	public Ess ess = null;
+
 }

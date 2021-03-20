@@ -2,7 +2,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -20,7 +19,7 @@ import com.github.sh0nk.matplotlib4j.PythonExecutionException;
 
 public class SolverTest {
 
-	private final static int NO_OF_PERIODS = 2;
+	private final static int NO_OF_PERIODS = 24;
 	// TODO apply in Wh calculations
 	private final static int MINUTES_PER_PERIOD = 60;
 
@@ -35,7 +34,7 @@ public class SolverTest {
 	/**
 	 * Grid Feed-In Limit, e.g. 70 % law
 	 */
-	private final static int GRID_SELL_LIMIT = -2000;
+	private final static int GRID_SELL_LIMIT = 2000;
 
 	private final static int GRID_BUY_LIMIT = 30000;
 
@@ -57,11 +56,11 @@ public class SolverTest {
 //	private final static int[] CONSUMPTIONS = IntStream.of(new int[NO_OF_PERIODS]).map(i -> 1000).toArray();
 
 	private final static int ESS_INITIAL_ENERGY = 6000; // [Wh]
-	private final static int ESS_MIN_ENERGY = 0; // [Wh]
-	private final static int ESS_MAX_ENERGY = 12000; // [Wh]
-	private final static int ESS_MAX_CHARGE = -9000; // [W]
+//	private final static int ESS_MIN_ENERGY = 0; // [Wh]
+//	private final static int ESS_MAX_ENERGY = 12000; // [Wh]
+	private final static int ESS_MAX_CHARGE = 9000; // [W]
 	private final static int ESS_MAX_DISCHARGE = 9000; // [W]
-	private final static int ESS_EFFICIENCY = 90; // [%, 0-100]
+//	private final static int ESS_EFFICIENCY = 90; // [%, 0-100]
 
 	public void run() throws IOException, PythonExecutionException {
 		Instant start = Instant.now();
@@ -75,61 +74,80 @@ public class SolverTest {
 			periods[i] = p;
 
 			// PV-Production per period. P_PV(t)
-			p.production = model.intVar("Production_" + p.name, 0, PRODUCTIONS[i], true);
-//			p.production = model.intVar("Production_" + p.name, PRODUCTIONS[i]);
+//			p.production = model.intVar("Production_" + p.name, 0, PRODUCTIONS[i]);
+			p.production.power = model.intVar("Production_" + p.name, PRODUCTIONS[i]);
 
 			// Consumption per period. P_HH(t)
-			p.consumption = model.intVar("Consumption_" + p.name, CONSUMPTIONS[i]);
+			p.consumption.power = model.intVar("Consumption_" + p.name, CONSUMPTIONS[i]);
 
 			// Energy Storage
-			p.ess = model.intVar("ESS_" + p.name, ESS_MAX_CHARGE, ESS_MAX_DISCHARGE);
-			p.essEnergy = model.intVar("ESS_Energy_ " + p.name, ESS_MIN_ENERGY, ESS_MAX_ENERGY);
+			IntVar dischargePower = model.intVar("ESS_" + p.name + "_Discharge", 0, ESS_MAX_DISCHARGE);
+			IntVar chargePower = model.intVar("ESS_" + p.name + "_Charge", 0, ESS_MAX_CHARGE);
+			p.ess = new Ess(model, chargePower, dischargePower);
 
-			ArExpression thisEssEnergy = p.ess.min(0).mul(ESS_EFFICIENCY).div(100) // Charge
-					.add( //
-							p.ess.max(0).mul(100 + 100 - ESS_EFFICIENCY).div(100) // Discharge
-					).mul(-1); // invert charge/discharge
-			if (i == 0) {
-				thisEssEnergy.add(ESS_INITIAL_ENERGY).eq(p.essEnergy).post();
-			} else {
-				Period previousP = periods[i - 1];
-				thisEssEnergy.add(previousP.essEnergy).eq(p.essEnergy).post();
-			}
+			// Balancing (with limit)
+			ArExpression excess = p.consumption.power.sub(p.production.power);
+			p.ess.power.eq(excess.min(1000).max(-2000)).post();
+
+//			p.essEnergy = model.intVar("ESS_Energy_ " + p.name, ESS_MIN_ENERGY, ESS_MAX_ENERGY);
+//			p.essEnergy = model.intVar("ESS_Energy_ " + p.name, IntVar.MIN_INT_BOUND, IntVar.MAX_INT_BOUND);
+
+//			ArExpression thisEssDischargeEnergy = p.ess.discharge.power.mul(MINUTES_PER_PERIOD);
+//			if (i == 0) {
+//				p.essEnergy.eq(thisEssEnergy.add(ESS_INITIAL_ENERGY)).post();
+//			} else {
+//				Period previousP = periods[i - 1];
+//				p.essEnergy.eq(thisEssEnergy.add(previousP.essEnergy)).post();
+//			}
+//
+//			ArExpression thisEssEnergy = p.ess.min(0).mul(ESS_EFFICIENCY).div(100) // Charge
+//					.add( //
+//							p.ess.max(0).mul(100 + 100 - ESS_EFFICIENCY).div(100) // Discharge
+//					).mul(-1); // invert charge/discharge
+//			ArExpression thisEssEnergy = p.ess.mul(MINUTES_PER_PERIOD); // [Watt-Minutes]
+//			if (i == 0) {
+//				p.essEnergy.eq(thisEssEnergy.add(ESS_INITIAL_ENERGY)).post();
+//			} else {
+//				Period previousP = periods[i - 1];
+//				p.essEnergy.eq(thisEssEnergy.add(previousP.essEnergy)).post();
+//			}
 
 			// Do not allow Discharging to Grid, i.e. max discharge power is Consumption
 			// minus Production
-			p.ess.le(p.consumption.sub(p.production).max(0)).post();
+//			p.ess.le(p.consumption.sub(p.production).max(0)).post();
 
 			/*
 			 * Grid Buy/Sell
 			 */
-			p.grid = p.consumption.sub(p.production).sub(p.ess).intVar();
-			// Apply Grid Limits
-			p.grid.ge(GRID_SELL_LIMIT).post();
-			p.grid.le(GRID_BUY_LIMIT).post();
-
-			p.gridSellRevenue = p.grid.mul(-1).max(0).mul(GRID_SELL_REVENUE[i]).intVar();
-			p.gridBuyCost = p.grid.max(0).mul(GRID_BUY_COST[i]).intVar();
+			IntVar gridPower = p.consumption.power.add(p.ess.charge.power).sub(p.production.power)
+					.sub(p.ess.discharge.power).intVar();
+			IntVar gridBuyPower = model.intVar("GridBuy_" + p.name, 0, GRID_BUY_LIMIT);
+			IntVar gridSellPower = model.intVar("GridSell_" + p.name, 0, GRID_SELL_LIMIT);
+			p.grid = new Grid(model, gridPower, gridBuyPower, gridSellPower);
+//
+//			p.gridSellRevenue = p.grid.mul(-1).max(0).mul(GRID_SELL_REVENUE[i]).intVar();
+//			p.gridBuyCost = p.grid.max(0).mul(GRID_BUY_COST[i]).intVar();
 		}
 
 		// Total Grid exchange
-		IntVar sumGridSellRevenue = model.intVar("Grid Sum Sell Revenue", 0, IntVar.MAX_INT_BOUND);
-		model.sum(Stream.of(periods).map(p -> p.gridSellRevenue).toArray(IntVar[]::new), "=", sumGridSellRevenue)
-				.post();
-
-		IntVar sumGridBuyCost = model.intVar("Grid Sum Buy Cost", 0, IntVar.MAX_INT_BOUND);
-		model.sum(Stream.of(periods).map(p -> p.gridBuyCost).toArray(IntVar[]::new), "=", sumGridBuyCost).post();
+//		IntVar sumGridSellRevenue = model.intVar("Grid Sum Sell Revenue", 0, IntVar.MAX_INT_BOUND);
+//		model.sum(Stream.of(periods).map(p -> p.gridSellRevenue).toArray(IntVar[]::new), "=", sumGridSellRevenue)
+//				.post();
+//
+//		IntVar sumGridBuyCost = model.intVar("Grid Sum Buy Cost", 0, IntVar.MAX_INT_BOUND);
+//		model.sum(Stream.of(periods).map(p -> p.gridBuyCost).toArray(IntVar[]::new), "=", sumGridBuyCost).post();
 
 		// Total Production
 		IntVar sumProduction = model.intVar("Production Sum", 0, IntVar.MAX_INT_BOUND);
-		model.sum(Stream.of(periods).map(p -> p.production).toArray(IntVar[]::new), "=", sumProduction).post();
+		model.sum(Stream.of(periods).map(p -> p.production.power).toArray(IntVar[]::new), "=", sumProduction).post();
 
-		IntVar totalRevenue = sumGridSellRevenue.sub(sumGridBuyCost).intVar();
+//		IntVar totalRevenue = sumGridSellRevenue.sub(sumGridBuyCost).intVar();
 
 		// Find optimal solution
 		Solver solver = model.getSolver();
 
-		ParetoOptimizer po = new ParetoOptimizer(Model.MAXIMIZE, new IntVar[] { sumProduction, totalRevenue });
+//		ParetoOptimizer po = new ParetoOptimizer(Model.MAXIMIZE, new IntVar[] { sumProduction, totalRevenue });
+		ParetoOptimizer po = new ParetoOptimizer(Model.MAXIMIZE, new IntVar[] { sumProduction });
 		solver.plugMonitor(po);
 
 		while (solver.solve()) {
@@ -153,17 +171,17 @@ public class SolverTest {
 //		Solution solution = solver.findOptimalSolution(totalCost, false);
 		if (solution != null) {
 			System.out.println(solution.toString());
-			for (IntVar var : new IntVar[] { sumGridBuyCost, sumGridSellRevenue, totalRevenue }) {
-				System.out.println(var.getName() + ": " + solution.getIntVal(var));
-			}
+//			for (IntVar var : new IntVar[] { sumGridBuyCost, sumGridSellRevenue, totalRevenue }) {
+//				System.out.println(var.getName() + ": " + solution.getIntVal(var));
+//			}
 
 			for (int i = 0; i < periods.length; i++) {
 				Period p = periods[i];
 				System.out.println(i + ":" //
-						+ " Grid: " + solution.getIntVal(p.grid) //
-						+ " Production: " + solution.getIntVal(p.production) //
-						+ " Consumption: " + solution.getIntVal(p.consumption) //
-						+ " ESS: " + solution.getIntVal(p.ess)); //
+//						+ " Grid: " + solution.getIntVal(p.grid) //
+						+ " Production: " + solution.getIntVal(p.production.power) //
+						+ " Consumption: " + solution.getIntVal(p.consumption.power) //
+						+ " ESS: " + solution.getIntVal(p.ess.power)); //
 //				System.out.println(i + ": " + solution.getIntVal(p.grid) + " Revenue: "
 //						+ solution.getIntVal(p.gridSellRevenue) + " Cost: " + solution.getIntVal(p.gridBuyCost));
 				for (IntVar var : new IntVar[] {}) {
@@ -173,6 +191,7 @@ public class SolverTest {
 
 			this.plot(periods, solution);
 		} else {
+			System.out.println(model);
 			System.out.println("No Solution!");
 		}
 	}
@@ -187,7 +206,7 @@ public class SolverTest {
 				.linestyle("--");
 		plt.plot() //
 				.add(Stream.of(periods) //
-						.map(p -> solution.getIntVal(p.production)) //
+						.map(p -> solution.getIntVal(p.production.power)) //
 						.collect(Collectors.toList())) //
 				.label("Curtailed Production") //
 				.linestyle("-");
@@ -199,7 +218,7 @@ public class SolverTest {
 				.linestyle("-");
 		plt.plot() //
 				.add(Stream.of(periods) //
-						.map(p -> solution.getIntVal(p.grid)) //
+						.map(p -> solution.getIntVal(p.grid.power)) //
 						.collect(Collectors.toList())) //
 				.label("Grid") //
 				.linestyle("-");
@@ -217,24 +236,24 @@ public class SolverTest {
 //				.linestyle("--");
 		plt.plot() //
 				.add(Stream.of(periods) //
-						.map(p -> solution.getIntVal(p.ess)) //
+						.map(p -> solution.getIntVal(p.ess.power)) //
 						.collect(Collectors.toList())) //
 				.label("ESS") //
 				.linestyle("-");
-		plt.plot() //
-				.add(Stream.of(periods) //
-						.map(p -> solution.getIntVal(p.essEnergy)) //
-						.collect(Collectors.toList())) //
-				.label("ESS Energy") //
-				.linestyle(":");
-		plt.plot() //
-				.add(Collections.nCopies(NO_OF_PERIODS, GRID_SELL_LIMIT)) //
-				.label("Grid Sell Limit") //
-				.linestyle("-.");
-		plt.plot() //
-				.add(Collections.nCopies(NO_OF_PERIODS, GRID_BUY_LIMIT)) //
-				.label("Grid Buy Limit") //
-				.linestyle("-.");
+//		plt.plot() //
+//				.add(Stream.of(periods) //
+//						.map(p -> solution.getIntVal(p.essEnergy)) //
+//						.collect(Collectors.toList())) //
+//				.label("ESS Energy") //
+//				.linestyle(":");
+//		plt.plot() //
+//				.add(Collections.nCopies(NO_OF_PERIODS, GRID_SELL_LIMIT)) //
+//				.label("Grid Sell Limit") //
+//				.linestyle("-.");
+//		plt.plot() //
+//				.add(Collections.nCopies(NO_OF_PERIODS, GRID_BUY_LIMIT)) //
+//				.label("Grid Buy Limit") //
+//				.linestyle("-.");
 		plt.xlabel("Hour");
 		plt.ylabel("Watt");
 		plt.legend();
