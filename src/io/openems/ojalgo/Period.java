@@ -1,3 +1,5 @@
+package io.openems.ojalgo;
+
 public class Period {
 
 	private final static int MINUTES_PER_DAY = 1440;
@@ -23,17 +25,13 @@ public class Period {
 	}
 
 	public final String name;
+	public final EnergySource production = new EnergySource();
+	public final EnergySink consumption = new EnergySink();
+	public final EnergyGrid grid = new EnergyGrid();
+	public final EnergyStorage ess = new EnergyStorage();
 
 	private Period(String name) {
 		this.name = name;
 	}
-
-	public EnergySource production = new EnergySource();
-
-	public EnergySink consumption = new EnergySink();
-
-	public Grid grid = null;
-
-	public Ess ess = null;
 
 }

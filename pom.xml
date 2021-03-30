@@ -35,5 +35,10 @@
 			<artifactId>guava</artifactId>
 			<version>30.1-jre</version>
 		</dependency>
+		<dependency>
+			<groupId>org.ojalgo</groupId>
+			<artifactId>ojalgo</artifactId>
+			<version>48.4.1</version>
+		</dependency>
 	</dependencies>
 </project>

@@ -1,3 +1,5 @@
+package io.openems.choco;
+
 import java.io.IOException;
 
 import com.github.sh0nk.matplotlib4j.PythonExecutionException;

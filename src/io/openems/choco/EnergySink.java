@@ -1,3 +1,4 @@
+package io.openems.choco;
 import org.chocosolver.solver.variables.IntVar;
 
 public class EnergySink {
