@@ -25,8 +25,6 @@ public class Period {
 	}
 
 	public final String name;
-	public final EnergySource production = new EnergySource();
-	public final EnergySink consumption = new EnergySink();
 	public final EnergyGrid grid = new EnergyGrid();
 	public final EnergyStorage ess = new EnergyStorage();
 

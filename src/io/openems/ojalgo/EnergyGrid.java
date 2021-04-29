@@ -6,12 +6,10 @@ public class EnergyGrid {
 
 	public static class Buy {
 		public Variable power = null;
-		public double cost;
 	}
 
 	public static class Sell {
 		public Variable power = null;
-		public double revenue;
 	}
 
 	public final Sell sell = new Sell();
